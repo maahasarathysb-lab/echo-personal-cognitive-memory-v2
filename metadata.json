@@ -1,0 +1,6 @@
+{
+  "name": "ECHO — Your Personal Cognitive Memory",
+  "description": "The starter app remembers what you said. ECHO understands how your thoughts evolve.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
