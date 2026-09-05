@@ -5,6 +5,8 @@ import {
   doc,
   setDoc,
   deleteDoc,
+  getDocs,
+  writeBatch,
   onSnapshot,
   query,
 } from 'firebase/firestore';
@@ -17,31 +19,27 @@ import {
   ReflectionActionType,
   ActionResponse,
 } from '../types';
-import { Navigation } from './Navigation';
+import { Navigation, TopBar } from './Navigation';
+import { CognitiveAtmosphere } from './CognitiveAtmosphere';
 import { MemoryView } from './MemoryView';
 import { AskPastSelfView } from './AskPastSelfView';
 import { DecisionReplayView } from './DecisionReplayView';
 import { ThoughtEvolutionView } from './ThoughtEvolutionView';
 import { EchoInsightsView } from './EchoInsightsView';
 import {
-  Brain,
-  Plus,
-  Trash2,
   Sparkles,
   AlertCircle,
   RefreshCw,
   Loader2,
-  Calendar,
   Lightbulb,
   FileText,
   CheckCircle2,
   X,
   Copy,
   Check,
-  ChevronLeft,
-  ChevronRight,
-  PanelLeftClose,
-  PanelLeftOpen,
+  ArrowUpRight,
+  Trash2,
+  Brain,
 } from 'lucide-react';
 
 interface JournalDashboardProps {
@@ -59,9 +57,9 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({ user }) => {
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [deletingLoading, setDeletingLoading] = useState(false);
   const [dbLoading, setDbLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // AI Reflection Actions State (Phase 2)
+  // AI Reflection Actions State
   const [activeActionLoading, setActiveActionLoading] = useState<ReflectionActionType | null>(null);
   const [actionResult, setActionResult] = useState<ActionResponse | null>(null);
   const [copiedAction, setCopiedAction] = useState(false);
@@ -143,6 +141,27 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({ user }) => {
     } catch (err) {
       console.error('Failed to delete interaction:', err);
       setReflectionError('Could not delete interaction. Please try again.');
+    } finally {
+      setDeletingLoading(false);
+    }
+  };
+
+  const handleDeleteAllInteractions = async () => {
+    if (!user || !user.uid) return;
+    try {
+      setDeletingLoading(true);
+      const userInteractionsRef = collection(db, 'users', user.uid, 'interactions');
+      const snap = await getDocs(query(userInteractionsRef));
+      const batch = writeBatch(db);
+      snap.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+      });
+      await batch.commit();
+      setInteractions([]);
+      setActiveInteractionId(null);
+    } catch (err) {
+      console.error('Failed to delete all interactions:', err);
+      throw err;
     } finally {
       setDeletingLoading(false);
     }
@@ -244,16 +263,15 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({ user }) => {
     }
   };
 
-  // Phase 2: Execute AI Reflection Action
+  // AI Reflection Action
   const handleExecuteAction = async (actionType: ReflectionActionType) => {
-    // Determine content to analyze: active messages or current input
     const messagesText = (activeInteraction?.messages || [])
-      .map((m) => `${m.role === 'user' ? 'User' : 'ECHO'}: ${m.content}`)
+      .map((m) => `${m.role === 'user' ? 'Thought' : 'ECHO Reflection'}: ${m.content}`)
       .join('\n\n');
 
     const contentToAnalyze = messagesText || inputPrompt.trim();
     if (!contentToAnalyze) {
-      setReflectionError('Please write a reflection or continue a thought first to run an action.');
+      setReflectionError('Write a thought or record a reflection first to run an action.');
       return;
     }
 
@@ -296,13 +314,11 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({ user }) => {
     setTimeout(() => setCopiedAction(false), 2000);
   };
 
-  const latestModelUsed =
-    activeInteraction?.messages?.filter((m) => m.role === 'model' && m.modelUsed).slice(-1)[0]?.modelUsed ||
-    (interactions.length > 0 ? 'gemini-3.8-flash' : null);
+  const hasMessages = Boolean(activeInteraction && activeInteraction.messages && activeInteraction.messages.length > 0);
 
   return (
-    <div id="echo-app-root" className="flex flex-col h-screen w-full bg-[#080a0f] text-[#e2e8f0] font-sans overflow-hidden">
-      {/* Top Global Navigation Bar */}
+    <div id="echo-app-root" className="flex h-screen w-full bg-[#07090e] text-[#e2e8f0] font-sans overflow-hidden">
+      {/* 1. LEFT ZONE: Compact Navigation Rail */}
       <Navigation
         currentView={currentView}
         onSelectView={(view) => {
@@ -311,12 +327,33 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({ user }) => {
         }}
         user={user}
         memoryCount={interactions.length}
+        recentInteractions={interactions}
+        activeInteractionId={activeInteractionId}
+        onSelectInteraction={(id) => setActiveInteractionId(id)}
+        onNewReflection={handleCreateNewReflection}
+        onDeleteInteraction={(id) => setIsDeletingId(id)}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
       />
 
-      {/* Main Viewport Container */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {currentView === 'memory' && (
-          <div className="flex-1 overflow-y-auto">
+      {/* 2. CENTER & RIGHT ZONES: Main Cognitive Workspace */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
+        {/* Subtle Living Background Field */}
+        <CognitiveAtmosphere />
+
+        {/* Minimal Premium Top Bar */}
+        <TopBar
+          currentView={currentView}
+          user={user}
+          onOpenMobileMenu={() => setMobileMenuOpen(true)}
+          interactionsCount={interactions.length}
+          onDeleteAllReflections={handleDeleteAllInteractions}
+        />
+
+        {/* Viewport Swapping */}
+        <div className="flex-1 overflow-y-auto relative z-10 custom-scrollbar">
+          {/* MEMORY VIEW */}
+          {currentView === 'memory' && (
             <MemoryView
               interactions={interactions}
               onSelectInteraction={(id) => {
@@ -326,447 +363,378 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({ user }) => {
               onDeleteInteraction={handleDeleteInteraction}
               onNewReflection={handleCreateNewReflection}
             />
-          </div>
-        )}
+          )}
 
-        {currentView === 'ask_past_self' && (
-          <div className="flex-1 overflow-y-auto">
+          {/* ASK YOUR PAST SELF VIEW */}
+          {currentView === 'ask_past_self' && (
             <AskPastSelfView
               user={user}
               interactions={interactions}
               onBackToReflect={() => setCurrentView('reflect')}
             />
-          </div>
-        )}
+          )}
 
-        {currentView === 'decisions' && (
-          <div className="flex-1 overflow-y-auto">
+          {/* DECISIONS VIEW */}
+          {currentView === 'decisions' && (
             <DecisionReplayView user={user} />
-          </div>
-        )}
+          )}
 
-        {currentView === 'thought_evolution' && (
-          <div className="flex-1 overflow-y-auto">
+          {/* THOUGHT EVOLUTION VIEW */}
+          {currentView === 'thought_evolution' && (
             <ThoughtEvolutionView user={user} interactions={interactions} />
-          </div>
-        )}
+          )}
 
-        {currentView === 'insights' && (
-          <div className="flex-1 overflow-y-auto">
+          {/* ECHO INSIGHTS VIEW */}
+          {currentView === 'insights' && (
             <EchoInsightsView user={user} interactions={interactions} />
-          </div>
-        )}
+          )}
 
-        {/* Phase 1 & 2: Primary Reflect Workspace */}
-        {currentView === 'reflect' && (
-          <div className="flex-1 flex h-full overflow-hidden">
-            {/* Left Reflection History Sidebar */}
-            <aside
-              className={`transition-all duration-200 bg-[#0c0e15] border-r border-[#1a1f2c] flex flex-col shrink-0 ${
-                sidebarOpen ? 'w-64 sm:w-72' : 'w-0 overflow-hidden border-none'
-              }`}
-            >
-              <div className="p-4 border-b border-[#1a1f2c] space-y-3">
-                <button
-                  id="workspace-new-reflection-btn"
-                  onClick={handleCreateNewReflection}
-                  className="w-full py-2 px-3 bg-teal-500 hover:bg-teal-400 text-[#080d14] text-xs font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>New Reflection</span>
-                </button>
-                <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium px-1">
-                  <span>Recent Reflections</span>
-                  <span className="text-[10px] font-mono text-slate-500">{interactions.length}</span>
-                </div>
-              </div>
-
-              {/* Sidebar List */}
-              <nav className="flex-1 overflow-y-auto p-2 space-y-1">
-                {interactions.length === 0 && !dbLoading ? (
-                  <div className="p-4 text-center text-xs text-slate-500 italic">
-                    No reflections yet. Write your thoughts to start.
-                  </div>
-                ) : (
-                  interactions.map((interaction) => {
-                    const isSelected = interaction.id === activeInteractionId;
-                    const dateStr = new Date(interaction.updatedAt || interaction.createdAt).toLocaleDateString(
-                      undefined,
-                      { month: 'short', day: 'numeric' }
-                    );
-
-                    return (
-                      <div
-                        key={interaction.id}
-                        id={`sidebar-interaction-${interaction.id}`}
-                        onClick={() => {
-                          setActiveInteractionId(interaction.id);
-                          setReflectionError(null);
-                          setActionResult(null);
-                        }}
-                        className={`group relative w-full p-2.5 rounded-lg text-xs cursor-pointer transition-colors flex flex-col gap-0.5 border ${
-                          isSelected
-                            ? 'bg-[#151925] border-teal-500/40 text-white'
-                            : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-[#121520]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="truncate font-medium pr-1">
-                            {interaction.title || 'Untitled Reflection'}
-                          </span>
-                          <button
-                            title="Delete"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setIsDeletingId(interaction.id);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-500 hover:text-rose-400 rounded transition cursor-pointer"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
-                          <span>{dateStr}</span>
-                          <span>&bull;</span>
-                          <span>{interaction.messages?.length || 0} turns</span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </nav>
-            </aside>
-
-            {/* Main Reflect Conversation Body */}
-            <main className="flex-1 flex flex-col relative bg-[#080a0f] overflow-hidden">
-              {/* Workspace Header */}
-              <header className="h-14 border-b border-[#181c28] flex items-center justify-between px-4 sm:px-6 bg-[#090c13]/70 backdrop-blur-sm sticky top-0 z-10 shrink-0">
-                <div className="flex items-center gap-2.5 overflow-hidden pr-4">
-                  <button
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    title={sidebarOpen ? 'Collapse sidebar' : 'Open sidebar'}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#151824] border border-transparent hover:border-[#212638] cursor-pointer"
-                  >
-                    {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-                  </button>
-                  <div className="flex flex-col truncate">
-                    <h2 className="text-xs font-semibold text-white truncate">
-                      {activeInteraction?.title || 'New Reflection Session'}
-                    </h2>
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      {activeInteraction
-                        ? `Updated ${new Date(activeInteraction.updatedAt || activeInteraction.createdAt).toLocaleDateString()} &bull; ${
-                            activeInteraction.messages?.length || 0
-                          } turns`
-                        : 'Unsaved draft'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {latestModelUsed && (
-                    <span className="text-[10px] px-2 py-0.5 rounded border border-[#212638] text-slate-400 font-mono bg-[#0e111a]">
-                      {latestModelUsed}
-                    </span>
-                  )}
+          {/* REFLECT SCREEN — REDESIGNED PERSONAL THOUGHT SPACE */}
+          {currentView === 'reflect' && (
+            <main className="max-w-4xl mx-auto px-4 sm:px-8 lg:px-10 py-7 sm:py-10 flex flex-col space-y-7">
+              {/* Header Section with Strong Hierarchy */}
+              <header className="space-y-2 text-left">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono tracking-[0.25em] text-teal-400 uppercase font-medium">
+                    REFLECT
+                  </span>
                   {activeInteraction && (
                     <button
                       onClick={() => setIsDeletingId(activeInteraction.id)}
-                      className="text-slate-500 hover:text-rose-400 p-1.5 rounded transition cursor-pointer"
-                      title="Delete reflection"
+                      className="text-neutral-500 hover:text-neutral-300 opacity-60 hover:opacity-100 transition-opacity p-1 rounded cursor-pointer text-xs flex items-center gap-1.5"
+                      title="Delete this reflection session"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-mono">Delete session</span>
                     </button>
                   )}
                 </div>
+
+                <h1 className="text-2xl sm:text-3xl font-normal tracking-tight text-neutral-100">
+                  Give your thoughts somewhere to go.
+                </h1>
+
+                <p className="text-sm text-neutral-400 leading-relaxed max-w-2xl font-normal">
+                  Write freely. ECHO helps you understand what you&apos;re thinking, without losing where the thought came from.
+                </p>
               </header>
 
-              {/* Messages Stream */}
-              <div id="messages-container" className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 flex flex-col space-y-6">
-                {(!activeInteraction || !activeInteraction.messages || activeInteraction.messages.length === 0) &&
-                !isReflecting ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto p-6 space-y-4">
-                    <div className="w-12 h-12 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 flex items-center justify-center">
-                      <Brain className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-semibold text-white mb-1">
-                        What is occupying your mind today?
-                      </h3>
-                      <p className="text-xs text-slate-400 leading-relaxed">
-                        Journal your unfiltered thoughts, dilemmas, or decisions. ECHO reflects back with cognitive inquiry, connects with your past entries, and preserves continuity.
-                      </p>
-                    </div>
-
-                    {/* Quick prompts */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full text-left pt-2">
-                      <button
-                        onClick={() =>
-                          setInputPrompt(
-                            "I've been feeling scattered with competing priorities and struggling to choose where to focus."
-                          )
-                        }
-                        className="p-3 rounded-lg border border-[#1d2334] bg-[#0d1017] hover:bg-[#141824] hover:border-teal-500/30 text-slate-300 text-xs transition cursor-pointer"
-                      >
-                        &ldquo;Feeling scattered with priorities...&rdquo;
-                      </button>
-                      <button
-                        onClick={() =>
-                          setInputPrompt(
-                            "Reflecting on a key decision I made recently and wondering if my initial assumptions hold."
-                          )
-                        }
-                        className="p-3 rounded-lg border border-[#1d2334] bg-[#0d1017] hover:bg-[#141824] hover:border-teal-500/30 text-slate-300 text-xs transition cursor-pointer"
-                      >
-                        &ldquo;Evaluating recent assumptions...&rdquo;
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {activeInteraction?.messages.map((message) => {
-                      const isUser = message.role === 'user';
-                      return isUser ? (
-                        <div key={message.id} className="flex flex-col items-end">
-                          <div className="max-w-[85%] sm:max-w-[80%] bg-[#181d2a] p-4 rounded-2xl rounded-tr-xs border border-[#262c3f] text-xs sm:text-sm leading-relaxed text-slate-100 whitespace-pre-wrap shadow-sm">
-                            {message.content}
-                          </div>
-                          <span className="text-[10px] text-slate-500 font-mono mt-1 mr-1">
-                            {new Date(message.timestamp).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </div>
-                      ) : (
-                        <div key={message.id} className="flex flex-col items-start">
-                          <div className="max-w-[85%] sm:max-w-[80%] bg-[#0e121a] p-4 rounded-2xl rounded-tl-xs border border-teal-500/20 shadow-sm">
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className="w-4 h-4 rounded bg-teal-500/20 text-teal-400 flex items-center justify-center text-[8px] font-bold">
-                                E
-                              </div>
-                              <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider">
-                                ECHO Cognitive Reflection
-                              </span>
-                              {message.modelUsed && (
-                                <span className="ml-auto text-[9px] font-mono px-1.5 py-0.2 rounded border border-[#1e2536] text-slate-500">
-                                  {message.modelUsed}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs sm:text-sm leading-relaxed text-slate-300 whitespace-pre-wrap">
-                              {message.content}
-                            </p>
-                          </div>
-                          <span className="text-[10px] text-slate-500 font-mono mt-1 ml-1">
-                            {new Date(message.timestamp).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </div>
-                      );
-                    })}
-
-                    {/* Reflecting Pulse State */}
-                    {isReflecting && (
-                      <div className="flex items-center justify-center pt-2">
-                        <div className="flex items-center gap-2 px-4 py-2 bg-[#0e121a] border border-teal-500/30 rounded-full">
-                          <div className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-pulse" />
-                          <span className="text-xs text-teal-300">ECHO is reflecting with Gemini...</span>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* AI Action Result Card (Phase 2) */}
-                {actionResult && (
-                  <div className="bg-[#0f1420] border border-teal-500/30 rounded-xl p-4 space-y-2 shadow-lg">
-                    <div className="flex items-center justify-between border-b border-[#1b2338] pb-2">
-                      <div className="flex items-center gap-2 text-teal-400 text-xs font-semibold uppercase tracking-wider">
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Action: {actionResult.action.replace('_', ' ')}</span>
-                        {actionResult.model && (
-                          <span className="text-[9px] font-mono text-slate-500 lowercase bg-[#131a2a] px-1.5 py-0.5 rounded">
-                            {actionResult.model}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={copyActionResult}
-                          title="Copy to clipboard"
-                          className="p-1 text-slate-400 hover:text-white rounded hover:bg-[#1a2336] transition-colors cursor-pointer"
-                        >
-                          {copiedAction ? <Check className="w-3.5 h-3.5 text-teal-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                        <button
-                          onClick={() => setActionResult(null)}
-                          title="Dismiss"
-                          className="p-1 text-slate-400 hover:text-white rounded hover:bg-[#1a2336] transition-colors cursor-pointer"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-xs leading-relaxed text-slate-200 whitespace-pre-line">
-                      {actionResult.result}
-                    </p>
-                  </div>
-                )}
-
-                {/* Error Banner */}
-                {reflectionError && (
-                  <div className="p-3 bg-rose-950/40 border border-rose-900/60 rounded-xl text-rose-300 text-xs flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                      <span>{reflectionError}</span>
-                    </div>
-                    {lastFailedPrompt && (
-                      <button
-                        onClick={() => handleSendPrompt(lastFailedPrompt)}
-                        className="px-2.5 py-1 bg-rose-900/60 hover:bg-rose-900 border border-rose-800/80 text-rose-200 rounded text-xs font-medium flex items-center gap-1 transition shrink-0 cursor-pointer"
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                        <span>Retry</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Bottom Input Area & AI Reflection Actions Toolbar */}
-              <div className="p-4 sm:p-6 pt-2 bg-[#080a0f] border-t border-[#161a26] shrink-0 space-y-3">
-                {/* Phase 2: Action Buttons Bar */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] text-slate-500 mr-1 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-teal-400" /> AI Actions:
-                  </span>
-
-                  {/* Key Insights */}
-                  <button
-                    onClick={() => handleExecuteAction('key_insights')}
-                    disabled={Boolean(activeActionLoading) || isReflecting}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#111520] hover:bg-[#171c2b] border border-[#212739] text-slate-300 text-xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {activeActionLoading === 'key_insights' ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-teal-400" />
-                    ) : (
-                      <Lightbulb className="w-3 h-3 text-amber-400" />
-                    )}
-                    <span>Key Insights</span>
-                  </button>
-
-                  {/* Summarize */}
-                  <button
-                    onClick={() => handleExecuteAction('summarize')}
-                    disabled={Boolean(activeActionLoading) || isReflecting}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#111520] hover:bg-[#171c2b] border border-[#212739] text-slate-300 text-xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {activeActionLoading === 'summarize' ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-teal-400" />
-                    ) : (
-                      <FileText className="w-3 h-3 text-indigo-400" />
-                    )}
-                    <span>Summarize</span>
-                  </button>
-
-                  {/* Next Steps */}
-                  <button
-                    onClick={() => handleExecuteAction('next_steps')}
-                    disabled={Boolean(activeActionLoading) || isReflecting}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#111520] hover:bg-[#171c2b] border border-[#212739] text-slate-300 text-xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {activeActionLoading === 'next_steps' ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-teal-400" />
-                    ) : (
-                      <CheckCircle2 className="w-3 h-3 text-teal-400" />
-                    )}
-                    <span>Next Steps</span>
-                  </button>
-
-                  {/* Brainstorm */}
-                  <button
-                    onClick={() => handleExecuteAction('brainstorm')}
-                    disabled={Boolean(activeActionLoading) || isReflecting}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#111520] hover:bg-[#171c2b] border border-[#212739] text-slate-300 text-xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {activeActionLoading === 'brainstorm' ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-teal-400" />
-                    ) : (
-                      <Brain className="w-3 h-3 text-purple-400" />
-                    )}
-                    <span>Brainstorm</span>
-                  </button>
-                </div>
-
-                {/* Prompt Textarea */}
+              {/* Central Reflection Composer (Primary Thought Studio Surface) */}
+              <section className="bg-[#0b0e15]/95 border border-white/[0.08] focus-within:border-teal-500/40 rounded-2xl p-5 sm:p-7 shadow-[0_15px_35px_rgba(0,0,0,0.5)] focus-within:shadow-[0_0_30px_rgba(45,212,191,0.06)] backdrop-blur-md transition-all duration-200">
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     handleSendPrompt();
                   }}
+                  className="space-y-4"
                 >
-                  <div className="relative">
+                  <div className="space-y-2">
+                    <label htmlFor="reflection-writing-surface" className="text-[11px] font-mono tracking-[0.16em] text-neutral-400 uppercase font-medium block">
+                      What is on your mind?
+                    </label>
                     <textarea
-                      id="journal-prompt-input"
-                      rows={2}
+                      id="reflection-writing-surface"
+                      rows={5}
                       value={inputPrompt}
                       onChange={(e) => setInputPrompt(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                           e.preventDefault();
                           handleSendPrompt();
                         }
                       }}
                       disabled={isReflecting}
-                      placeholder="Write your thought, reflection, or question... (Press Enter to send)"
-                      className="w-full bg-[#0d1017] border border-[#212739] rounded-xl p-3.5 pr-14 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-teal-500/50 resize-none transition-colors"
+                      placeholder="Write a thought, question, decision, doubt, idea, or realization..."
+                      className="w-full bg-transparent border-0 text-sm sm:text-base text-neutral-100 placeholder:text-neutral-500 focus:outline-none resize-none leading-relaxed"
                       maxLength={5000}
                     />
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3.5 border-t border-white/[0.05]">
+                    <span className="text-[10.5px] font-mono text-neutral-500">
+                      Press ⌘ + Enter to reflect · {inputPrompt.length} / 5000
+                    </span>
+
                     <button
-                      id="send-prompt-btn"
+                      id="submit-thought-btn"
                       type="submit"
                       disabled={isReflecting || !inputPrompt.trim()}
-                      className="absolute right-3 bottom-3 w-8 h-8 rounded-lg bg-teal-500 hover:bg-teal-400 text-[#070b12] flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm"
-                      title="Send reflection"
+                      className="h-10 px-4 bg-teal-500/15 hover:bg-teal-500/25 active:bg-teal-500/20 text-teal-300 hover:text-teal-200 border border-teal-500/30 rounded-xl text-xs font-mono tracking-wider flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ml-auto"
+                      title="Reflect thought"
                     >
                       {isReflecting ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-400" />
+                          <span>Reflecting...</span>
+                        </>
                       ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                        </svg>
+                        <>
+                          <span>Record & Reflect</span>
+                          <ArrowUpRight className="w-4 h-4" />
+                        </>
                       )}
                     </button>
                   </div>
-                  <div className="flex justify-between items-center mt-2 px-1 text-[10px] text-slate-500">
-                    <span className="font-mono">Google Auth Verified &bull; Firestore Owner-Isolated</span>
-                    <span className="font-mono">{inputPrompt.length} / 5000</span>
-                  </div>
                 </form>
-              </div>
+              </section>
+
+              {/* Error Banner */}
+              {reflectionError && (
+                <div
+                  className="p-4 rounded-xl bg-rose-950/30 border border-rose-900/50 text-rose-300 text-xs flex items-center justify-between gap-3"
+                  role="alert"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{reflectionError}</span>
+                  </div>
+                  {lastFailedPrompt && (
+                    <button
+                      onClick={() => handleSendPrompt(lastFailedPrompt)}
+                      className="px-2.5 py-1 bg-rose-900/40 hover:bg-rose-900/70 border border-rose-800/70 text-rose-200 rounded-lg text-xs font-mono flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Retry</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Thought Stream & Reflect Dialogue */}
+              {hasMessages ? (
+                <div className="space-y-6 pt-1">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/[0.05]">
+                    <span className="text-[10px] font-mono tracking-[0.2em] text-neutral-400 uppercase font-medium">
+                      THOUGHT TRAJECTORY
+                    </span>
+                    <span className="text-[10px] font-mono text-neutral-500">
+                      {activeInteraction?.messages.length} exchanges
+                    </span>
+                  </div>
+
+                  {activeInteraction?.messages.map((message) => {
+                    const isUser = message.role === 'user';
+                    const timeStr = new Date(message.timestamp).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+
+                    return isUser ? (
+                      /* USER THOUGHT CARD — Editorial, subtle surface contrast, minimal borders */
+                      <article
+                        key={message.id}
+                        className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-5 sm:p-6 space-y-2.5 shadow-sm text-left transition-colors"
+                      >
+                        <div className="flex items-center justify-between text-[10px] font-mono text-neutral-500">
+                          <span className="tracking-widest uppercase text-neutral-400 font-medium">
+                            YOUR THOUGHT
+                          </span>
+                          <span>{timeStr}</span>
+                        </div>
+                        <p className="text-sm sm:text-base text-neutral-100 leading-relaxed font-normal whitespace-pre-wrap">
+                          {message.content}
+                        </p>
+                      </article>
+                    ) : (
+                      /* ECHO REFLECTION CARD — Core cognitive intelligence, spacious, calm depth */
+                      <article
+                        key={message.id}
+                        className="bg-teal-950/15 border border-teal-500/20 rounded-2xl p-6 sm:p-7 space-y-3.5 shadow-md text-left relative overflow-hidden"
+                      >
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <div className="flex items-center gap-2 text-teal-300 font-medium tracking-widest uppercase">
+                            {/* Harmonic wave resonance indicator */}
+                            <div className="flex items-center gap-0.5" aria-hidden="true">
+                              <span className="w-1 h-2 bg-teal-400 rounded-full" />
+                              <span className="w-1 h-3.5 bg-teal-400 rounded-full" />
+                              <span className="w-1 h-2 bg-teal-400 rounded-full" />
+                            </div>
+                            <span>ECHO REFLECTION</span>
+                          </div>
+                          <span className="text-neutral-500">{timeStr}</span>
+                        </div>
+
+                        <p className="text-sm sm:text-base text-neutral-200 leading-relaxed font-normal whitespace-pre-wrap">
+                          {message.content}
+                        </p>
+                      </article>
+                    );
+                  })}
+
+                  {/* Ongoing Reflection Pulse */}
+                  {isReflecting && (
+                    <div className="flex items-center justify-center py-6">
+                      <div className="flex items-center gap-2.5 px-4 py-2 rounded-full bg-teal-950/40 border border-teal-500/30 text-teal-300 text-xs font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-ping" />
+                        <span>ECHO is listening and synthesizing cognitive reflections...</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 5. AI ACTIONS: Compact ECHO ACTIONS Row */}
+                  <section className="pt-5 border-t border-white/[0.06] space-y-3.5">
+                    <div className="flex items-center gap-2 text-[10px] font-mono tracking-[0.2em] text-neutral-400 uppercase font-medium">
+                      <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                      <span>ECHO ACTIONS</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {/* Key Insights */}
+                      <button
+                        onClick={() => handleExecuteAction('key_insights')}
+                        disabled={Boolean(activeActionLoading) || isReflecting}
+                        className="p-3.5 rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.07] hover:border-teal-500/30 text-left transition-all duration-200 cursor-pointer disabled:opacity-40 group flex flex-col justify-between min-h-[82px]"
+                      >
+                        <div className="flex items-center justify-between pb-1 w-full">
+                          <Lightbulb className="w-4 h-4 text-amber-400/90 group-hover:scale-105 transition-transform" />
+                          {activeActionLoading === 'key_insights' && (
+                            <Loader2 className="w-3 h-3 animate-spin text-teal-400" />
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-neutral-200 block">Key Insights</span>
+                          <span className="text-[10.5px] text-neutral-400 font-mono block">Core patterns</span>
+                        </div>
+                      </button>
+
+                      {/* Summarize */}
+                      <button
+                        onClick={() => handleExecuteAction('summarize')}
+                        disabled={Boolean(activeActionLoading) || isReflecting}
+                        className="p-3.5 rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.07] hover:border-teal-500/30 text-left transition-all duration-200 cursor-pointer disabled:opacity-40 group flex flex-col justify-between min-h-[82px]"
+                      >
+                        <div className="flex items-center justify-between pb-1 w-full">
+                          <FileText className="w-4 h-4 text-cyan-400/90 group-hover:scale-105 transition-transform" />
+                          {activeActionLoading === 'summarize' && (
+                            <Loader2 className="w-3 h-3 animate-spin text-teal-400" />
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-neutral-200 block">Summarize</span>
+                          <span className="text-[10.5px] text-neutral-400 font-mono block">Distill thought</span>
+                        </div>
+                      </button>
+
+                      {/* Next Steps */}
+                      <button
+                        onClick={() => handleExecuteAction('next_steps')}
+                        disabled={Boolean(activeActionLoading) || isReflecting}
+                        className="p-3.5 rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.07] hover:border-teal-500/30 text-left transition-all duration-200 cursor-pointer disabled:opacity-40 group flex flex-col justify-between min-h-[82px]"
+                      >
+                        <div className="flex items-center justify-between pb-1 w-full">
+                          <CheckCircle2 className="w-4 h-4 text-teal-400/90 group-hover:scale-105 transition-transform" />
+                          {activeActionLoading === 'next_steps' && (
+                            <Loader2 className="w-3 h-3 animate-spin text-teal-400" />
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-neutral-200 block">Next Steps</span>
+                          <span className="text-[10.5px] text-neutral-400 font-mono block">Actionable clarity</span>
+                        </div>
+                      </button>
+
+                      {/* Brainstorm */}
+                      <button
+                        onClick={() => handleExecuteAction('brainstorm')}
+                        disabled={Boolean(activeActionLoading) || isReflecting}
+                        className="p-3.5 rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.07] hover:border-teal-500/30 text-left transition-all duration-200 cursor-pointer disabled:opacity-40 group flex flex-col justify-between min-h-[82px]"
+                      >
+                        <div className="flex items-center justify-between pb-1 w-full">
+                          <Brain className="w-4 h-4 text-purple-400/90 group-hover:scale-105 transition-transform" />
+                          {activeActionLoading === 'brainstorm' && (
+                            <Loader2 className="w-3 h-3 animate-spin text-teal-400" />
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-neutral-200 block">Brainstorm</span>
+                          <span className="text-[10.5px] text-neutral-400 font-mono block">New angles</span>
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* Action Result Card */}
+                    {actionResult && (
+                      <div className="mt-4 p-5 rounded-2xl bg-[#0e121b] border border-teal-500/30 space-y-3 shadow-lg text-left">
+                        <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
+                          <div className="flex items-center gap-2 text-teal-300 text-xs font-mono uppercase tracking-wider">
+                            <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                            <span>Action: {actionResult.action.replace('_', ' ')}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={copyActionResult}
+                              className="p-1 text-neutral-400 hover:text-white rounded hover:bg-white/[0.05] transition cursor-pointer"
+                              title="Copy to clipboard"
+                            >
+                              {copiedAction ? <Check className="w-3.5 h-3.5 text-teal-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                            <button
+                              onClick={() => setActionResult(null)}
+                              className="p-1 text-neutral-400 hover:text-white rounded hover:bg-white/[0.05] transition cursor-pointer"
+                              title="Dismiss"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-sm text-neutral-200 leading-relaxed whitespace-pre-line font-normal">
+                          {actionResult.result}
+                        </p>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              ) : (
+                /* Empty state with intentional visual anchors */
+                <div className="py-12 flex flex-col items-center justify-center text-center space-y-4 max-w-md mx-auto">
+                  <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-400 flex items-center justify-center">
+                    <Brain className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base font-medium text-neutral-200">
+                      Your cognitive timeline starts with the first thought you save.
+                    </h3>
+                    <p className="text-xs text-neutral-400 leading-relaxed">
+                      Journal unfiltered observations, doubts, decisions, or curiosities above. ECHO stores and connects them over time.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full pt-3 text-left">
+                    <button
+                      onClick={() => setInputPrompt("I have been reflecting on my recent career priorities and where I should direct my focus next.")}
+                      className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] text-neutral-300 text-xs transition cursor-pointer"
+                    >
+                      &ldquo;Reflecting on career priorities...&rdquo;
+                    </button>
+                    <button
+                      onClick={() => setInputPrompt("I noticed a hesitation in making a key decision this week and want to understand my underlying assumptions.")}
+                      className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] text-neutral-300 text-xs transition cursor-pointer"
+                    >
+                      &ldquo;Understanding decision assumptions...&rdquo;
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
             </main>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Delete Confirmation Modal */}
       {isDeletingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4">
-          <div className="bg-[#11141e] border border-[#222738] rounded-xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
-            <h3 className="text-sm font-semibold text-white">Delete Reflection?</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              This action will permanently delete this conversation from your private Cloud Firestore storage.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0e111a] border border-white/[0.09] rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-left">
+            <h3 className="text-sm font-semibold text-neutral-100">Delete Reflection Session?</h3>
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              This reflection and its recorded thoughts will be permanently deleted from your private archive.
             </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2.5 pt-2">
               <button
                 onClick={() => setIsDeletingId(null)}
                 disabled={deletingLoading}
-                className="px-3.5 py-2 rounded-lg border border-[#222738] bg-[#161a27] text-xs text-slate-300 hover:bg-[#1d2334] transition cursor-pointer"
+                className="px-3.5 py-2 rounded-xl border border-white/[0.08] bg-white/[0.03] text-xs text-neutral-300 hover:bg-white/[0.07] transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -774,7 +742,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({ user }) => {
                 id="confirm-delete-btn"
                 onClick={() => handleDeleteInteraction(isDeletingId)}
                 disabled={deletingLoading}
-                className="px-3.5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
               >
                 {deletingLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 <span>Delete</span>
