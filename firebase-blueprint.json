@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique identifier for the user"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the user"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the user document was created"
+        }
+      },
+      "required": ["uid"]
+    },
+    "Interaction": {
+      "title": "Interaction",
+      "description": "A cognitive journal conversation or reflection session",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the interaction"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title or cognitive theme of the reflection"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp in ISO format"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last updated timestamp in ISO format"
+        },
+        "messages": {
+          "type": "array",
+          "description": "Array of conversation turns between user and ECHO"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Optional AI-generated summary"
+        }
+      },
+      "required": ["title", "createdAt", "updatedAt", "messages"]
+    },
+    "Decision": {
+      "title": "Decision",
+      "description": "A tracked decision with reasoning, expectations, and retrospective analysis",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the decision"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the decision"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed context or description of the decision"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of the decision"
+        },
+        "reasons": {
+          "type": "array",
+          "description": "List of core reasons for making this decision"
+        },
+        "alternativesConsidered": {
+          "type": "array",
+          "description": "Alternatives weighed prior to deciding"
+        },
+        "confidenceScore": {
+          "type": "number",
+          "description": "Confidence score from 1 to 10"
+        },
+        "expectedOutcome": {
+          "type": "string",
+          "description": "Expected outcome and timeline"
+        },
+        "actualOutcome": {
+          "type": "string",
+          "description": "Actual result observed retrospectively"
+        },
+        "reflectionLesson": {
+          "type": "string",
+          "description": "Key cognitive takeaway or lesson learned"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "completed"],
+          "description": "Current status of the decision tracking"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last updated timestamp"
+        }
+      },
+      "required": ["title", "status", "confidenceScore", "expectedOutcome"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Top-level user profiles strictly scoped by authentication UID"
+    },
+    "/users/{userId}/interactions/{interactionId}": {
+      "schema": "Interaction",
+      "description": "User's cognitive journal reflections and conversations"
+    },
+    "/users/{userId}/decisions/{decisionId}": {
+      "schema": "Decision",
+      "description": "User's tracked decisions and retrospective analyses"
+    }
+  }
+}

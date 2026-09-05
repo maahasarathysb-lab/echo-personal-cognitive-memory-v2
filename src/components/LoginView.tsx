@@ -7,22 +7,76 @@ interface LoginViewProps {
   onLoginSuccess?: () => void;
 }
 
+interface AuthErrorInfo {
+  code?: string;
+  message: string;
+  actionableHint?: string;
+}
+
 export const LoginView: React.FC<LoginViewProps> = () => {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorInfo, setErrorInfo] = useState<AuthErrorInfo | null>(null);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
-    setError(null);
+    setErrorInfo(null);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err: unknown) {
       console.error('Sign-in failure:', err);
-      const message = err instanceof Error ? err.message : 'Authentication failed';
-      if (message.includes('popup-closed-by-user')) {
-        setError('Sign-in cancelled. Please try again.');
+      const authErr = err as { code?: string; message?: string };
+      const code = authErr?.code || '';
+      const rawMessage = authErr?.message || (err instanceof Error ? err.message : 'Authentication failed');
+
+      if (code === 'auth/unauthorized-domain' || rawMessage.includes('unauthorized-domain')) {
+        const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
+        setErrorInfo({
+          code: 'auth/unauthorized-domain',
+          message: 'This domain is not authorized in Firebase.',
+          actionableHint: `Add "${currentHost}" to Firebase Console -> Authentication -> Settings -> Authorized domains.`,
+        });
+      } else if (code === 'auth/popup-blocked' || rawMessage.includes('popup-blocked')) {
+        setErrorInfo({
+          code: 'auth/popup-blocked',
+          message: 'Sign-in popup blocked by browser.',
+          actionableHint: 'Please allow popups for this site, or open the preview in a new tab.',
+        });
+      } else if (code === 'auth/popup-closed-by-user' || rawMessage.includes('popup-closed-by-user')) {
+        setErrorInfo({
+          code: 'auth/popup-closed-by-user',
+          message: 'Sign-in was cancelled.',
+          actionableHint: 'The Google sign-in window was closed before completing authentication.',
+        });
+      } else if (code === 'auth/cancelled-popup-request' || rawMessage.includes('cancelled-popup-request')) {
+        setErrorInfo({
+          code: 'auth/cancelled-popup-request',
+          message: 'Multiple sign-in attempts detected.',
+          actionableHint: 'Another sign-in popup was already active. Please try again.',
+        });
+      } else if (code === 'auth/operation-not-allowed' || rawMessage.includes('operation-not-allowed')) {
+        setErrorInfo({
+          code: 'auth/operation-not-allowed',
+          message: 'Google Sign-In is disabled.',
+          actionableHint: 'Enable Google provider in Firebase Console -> Authentication -> Sign-in method.',
+        });
+      } else if (code === 'auth/invalid-api-key' || rawMessage.includes('invalid-api-key')) {
+        setErrorInfo({
+          code: 'auth/invalid-api-key',
+          message: 'Invalid Firebase API Key.',
+          actionableHint: 'Please verify the API key configured in firebase-applet-config.json and environment variables.',
+        });
+      } else if (code === 'auth/network-request-failed' || rawMessage.includes('network-request-failed')) {
+        setErrorInfo({
+          code: 'auth/network-request-failed',
+          message: 'Network connection failed.',
+          actionableHint: 'Could not communicate with Google authentication servers. Check your connection and retry.',
+        });
       } else {
-        setError('Unable to authenticate with Google. Please check your connection and retry.');
+        setErrorInfo({
+          code: code || 'auth/unknown',
+          message: rawMessage,
+          actionableHint: 'Please check your connection and retry, or check the browser console for details.',
+        });
       }
     } finally {
       setLoading(false);
@@ -60,9 +114,21 @@ export const LoginView: React.FC<LoginViewProps> = () => {
         </div>
 
         {/* Error Alert */}
-        {error && (
-          <div id="login-error-banner" className="mb-6 p-3 rounded-lg bg-rose-950/40 border border-rose-900/60 text-rose-300 text-xs flex items-center gap-2">
-            <span>{error}</span>
+        {errorInfo && (
+          <div id="login-error-banner" className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-900/60 text-rose-300 text-xs space-y-1.5 text-left">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold text-rose-200">{errorInfo.message}</span>
+              {errorInfo.code && (
+                <span className="font-mono text-[10px] bg-rose-900/50 text-rose-300 px-1.5 py-0.5 rounded shrink-0">
+                  {errorInfo.code}
+                </span>
+              )}
+            </div>
+            {errorInfo.actionableHint && (
+              <p className="text-rose-300/80 text-[11px] leading-relaxed">
+                {errorInfo.actionableHint}
+              </p>
+            )}
           </div>
         )}
 
