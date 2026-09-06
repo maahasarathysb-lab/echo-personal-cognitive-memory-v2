@@ -90,10 +90,8 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
 
 // Resilient Gemini Model Fallback Ladder
 const FALLBACK_LADDER = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
 ] as const;
 
 interface FallbackResult {
@@ -119,17 +117,17 @@ async function generateWithFallback(
   options?: GenerateOptions | string,
   totalTimeoutMsParam = 48000
 ): Promise<FallbackResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured on the server');
-  }
 
   const systemInstruction = typeof options === 'string' ? options : options?.systemInstruction;
   const totalTimeoutMs = typeof options === 'object' && options?.totalTimeoutMs ? options.totalTimeoutMs : totalTimeoutMsParam;
   const temperature = typeof options === 'object' && options?.temperature !== undefined ? options.temperature : 0.7;
   const responseMimeType = typeof options === 'object' ? options?.responseMimeType : undefined;
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({
+    vertexai: true,
+    project: process.env.GOOGLE_CLOUD_PROJECT || 'gen-lang-client-0544024101',
+    location: 'us-central1',
+  });
   const deadline = Date.now() + totalTimeoutMs;
   let lastError: unknown = null;
 
@@ -1237,3 +1235,6 @@ startServer().catch((err) => {
   console.error('Fatal server boot failure:', err);
   process.exit(1);
 });
+
+
+
