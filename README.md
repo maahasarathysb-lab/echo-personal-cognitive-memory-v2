@@ -28,7 +28,7 @@
 | **Context Horizon** | Single entry (isolated) | Single prompt/session | Continuous longitudinal timeline |
 | **Historical Recall** | Manual keyword search | Hallucinates or guesses | Grounded retrieval with zero-relevance guardrails |
 | **Cognitive Growth** | Static storage | Ephemeral chat | Decision replay, thought evolution & trajectory tracking |
-| **Data Privacy** | Local or vendor silo | Public LLM prompts | Cryptographic owner-isolation via Firebase & Cloud Firestore |
+| **Data Privacy** | Local or vendor silo | Public LLM prompts | Authenticated, owner-scoped data isolation |
 
 ---
 
@@ -61,7 +61,7 @@ Ask natural questions about your historical mindset, struggles, and decisions:
 ### ⚖️ Decision Replay
 - **Decision Capture**: Log decisions with context, initial confidence levels, core rationales, and considered alternatives.
 - **Outcome Assessment**: Record expected versus actual outcomes alongside cognitive lessons learned.
-- **AI Retrospective Evaluation**: Generate balanced retrospective insights analyzing decision quality, cognitive biases, and calibration.
+- **AI Retrospective Evaluation**: Generate balanced retrospective insights comparing the original reasoning, confidence, expected outcome, and actual outcome.
 
 ### 🧬 Thought Evolution
 - **Longitudinal Progression**: Track changes in mindset, goals, emotional state, and active inquiries across time.
@@ -143,7 +143,7 @@ All persistent cognitive data is partitioned under per-user subcollections in Cl
 
 ### Firestore Security Rules
 
-Cloud Firestore enforces hardware-level owner isolation. Security rules located in `firestore.rules` verify that the requester is authenticated and matches the path owner:
+Cloud Firestore enforces owner-scoped access through security rules that verify the authenticated user's UID matches the document path owner:
 
 ```javascript
 rules_version = '2';
@@ -178,7 +178,7 @@ Cross-user document reads, writes, or enumeration are rejected by default at the
 Production inference in ECHO is powered directly by **Google Cloud Vertex AI** using the official `@google/genai` SDK:
 
 - **Primary Model**: `gemini-2.5-flash` — High-speed, high-context cognitive reflection and synthesis.
-- **Fallback Model**: `gemini-2.5-flash-lite` — Automated failover ensuring sub-second response resilience during traffic surges or upstream timeouts.
+- **Fallback Model**: `gemini-2.5-flash-lite` — Fallback model used when the primary model encounters transient errors, rate limits, or timeouts.
 - **IAM Service Account Authentication**: When running in Google Cloud Run, the application authenticates directly to the Vertex AI platform using the Cloud Run runtime service account (Application Default Credentials).
 - **Zero Frontend Secret Exposure**: No AI API keys or credentials are ever sent to the browser or stored in client-side bundles.
 
@@ -471,7 +471,7 @@ gcloud run deploy echo-memory \
 - **Model Fallback**: Cascades from `gemini-2.5-flash` to `gemini-2.5-flash-lite` if the primary model encounters rate limits, errors, or timeouts.
 - **Bounded Request Timeouts**: Each model attempt is governed by an independent `AbortController` (12s per model, 48s total request deadline).
 - **Graceful Zero-Relevance Handling**: Questions without matching historical context return structured insufficient-context responses rather than failing silently or hallucinating.
-- **Firestore Resilience**: Supports both direct Firestore REST retrieval and client-provided authenticated reflection mirrors as a resilient secondary data channel.
+- **Firestore Resilience**: Historical memory retrieval handles database access failures gracefully and avoids silently returning unsupported historical answers.
 
 ---
 
